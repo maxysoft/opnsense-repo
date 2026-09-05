@@ -43,7 +43,9 @@ jobs:
             freebsd: "14.3"
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      pkgversion: ${{ steps.ver.outputs.pkgversion }}
       tag: ${{ steps.ver.outputs.tag }}
+      source_tag: ${{ steps.ver.outputs.source_tag }}
     steps:
       - name: Checkout this repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,6 +85,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "pkgversion=$PKGVERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "source_tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "building ${PLUGIN_PKGNAME} $PKGVERSION from ${PLUGIN_REPO}@${REF}"
 
@@ -350,28 +353,43 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}
-          VERSION: ${{ needs.build.outputs.version }}
+          PKGVERSION: ${{ needs.build.outputs.pkgversion }}
+          SOURCE_TAG: ${{ needs.build.outputs.source_tag }}
         run: |
           set -eu
           ls -l assets
 
-          cat > /tmp/notes.md <<EOF
-          Packages for OPNsense 26.1 (\`FreeBSD:14:amd64\`) and 26.7 (\`FreeBSD:15:amd64\`).
+          # Changelog from the plugin commits since the previous source tag.
+          PREV=$(gh api "repos/${PLUGIN_REPO}/tags" --paginate --jq '.[].name' \
+                 | grep '^v' | sort -V | grep -B1 -x "$SOURCE_TAG" | head -1 || true)
 
-          For the current version, add the repository and use the plugin manager.
-          To pin or roll back to this specific version:
+          : > /tmp/changes.md
+          if [ -n "$PREV" ] && [ "$PREV" != "$SOURCE_TAG" ]; then
+            gh api "repos/${PLUGIN_REPO}/compare/${PREV}...${SOURCE_TAG}" \
+              --jq '.commits[].commit.message | split("\n")[0]' 2>/dev/null \
+              | grep -v '^Merge ' | head -10 | sed 's/^/- /' > /tmp/changes.md || true
+          fi
+          [ -s /tmp/changes.md ] || echo "- see the commit history" > /tmp/changes.md
 
-          \`\`\`
-          pkg add https://github.com/${REPO}/releases/download/${TAG}/os-devicemonitor-${VERSION}-FreeBSD_15_amd64.pkg
-          \`\`\`
-
-          Use the \`FreeBSD_14_amd64\` asset on OPNsense 26.1.
-          EOF
-          sed -i 's/^          //' /tmp/notes.md
+          {
+            echo "### Changes"
+            cat /tmp/changes.md
+            echo
+            echo "Add the repository, then install from System > Firmware > Plugins."
+            echo "To pin this version:"
+            echo
+            echo '```'
+            echo "pkg add https://github.com/${REPO}/releases/download/${TAG}/os-devicemonitor-${PKGVERSION}-FreeBSD_15_amd64.pkg"
+            echo '```'
+            echo
+            echo "Use the \`FreeBSD_14_amd64\` asset on OPNsense 26.1."
+          } > /tmp/notes.md
+          cat /tmp/notes.md
 
           if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
-            echo "release $TAG exists, replacing its assets"
+            echo "release $TAG exists, refreshing its assets and notes"
             gh release upload "$TAG" assets/*.pkg --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --notes-file /tmp/notes.md
           else
             gh release create "$TAG" assets/*.pkg \
               --repo "$REPO" \

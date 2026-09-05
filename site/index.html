@@ -96,15 +96,27 @@
   .lede strong { color: var(--text); font-weight: 600; }
 
   /* Command block ------------------------------------------------------- */
+  /* The copy button lives in its own bar rather than floating over the code:
+     the command line is long, so an overlaid button sat on top of the text and
+     scrolled away with it inside the horizontal scroller. */
   .cmd {
-    position: relative;
     background: var(--surface);
     border: 1px solid var(--line);
     border-left: 3px solid var(--brand);
     border-radius: var(--radius);
-    padding: 18px 108px 18px 20px;
-    overflow-x: auto;
+    overflow: hidden;
   }
+  .cmd-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px 8px 20px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .cmd-bar span { font-size: 13px; color: var(--dim); }
+  .cmd-body { padding: 16px 20px; overflow-x: auto; }
   .cmd pre {
     margin: 0;
     font-size: 14px;
@@ -114,9 +126,7 @@
   }
   .cmd .prompt { color: var(--dim); user-select: none; }
   .copy {
-    position: absolute;
-    top: 12px;
-    right: 12px;
+    flex: none;
     min-width: 82px;
     padding: 7px 12px;
     font: inherit;
@@ -220,8 +230,8 @@
     .hero { padding: 48px 0 40px; }
     section { padding: 40px 0; }
     .releases { grid-template-columns: 1fr; }
-    .cmd { padding: 16px; }
-    .copy { position: static; margin-top: 14px; width: 100%; }
+    .cmd-bar { padding-left: 16px; }
+    .cmd-body { padding: 14px 16px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -255,9 +265,14 @@
       </p>
 
       <div class="cmd">
-        <button class="copy" type="button" data-copy="setup">Copy</button>
+        <div class="cmd-bar">
+          <span>Run as root on the firewall</span>
+          <button class="copy" type="button" data-copy="setup">Copy</button>
+        </div>
+        <div class="cmd-body">
 <pre id="setup"><span class="prompt">#</span> fetch -o /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf https://maxysoft.github.io/opnsense-repo/mxy-opnsense-repo.conf
 <span class="prompt">#</span> pkg update</pre>
+        </div>
       </div>
     </div>
 

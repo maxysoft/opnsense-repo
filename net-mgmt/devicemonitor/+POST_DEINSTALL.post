@@ -1,0 +1,5 @@
+rm -f /etc/rc.conf.d/devicemonitor
+
+# /var/db/devicemonitor is deliberately left alone: it is user data and this
+# script also runs on every upgrade. Purge it by hand if you really want to:
+#   rm -rf /var/db/devicemonitor

@@ -1,0 +1,201 @@
+name: build and publish pkg repo
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      plugin_ref:
+        description: git ref of the plugin repo to build
+        required: false
+        default: main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one Pages deployment at a time, and never cancel one mid-flight
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PLUGIN_REPO: maxysoft/opnsense-devicemonitor
+  PLUGIN_DIR: net-mgmt/devicemonitor
+  # OPNsense plugin build framework (Mk/, Templates/, Scripts/, Keywords/), pinned
+  OPNSENSE_PLUGINS_REF: "26.7.3"
+
+jobs:
+  # One package per supported OPNsense series. The FreeBSD release must be the
+  # one that series is built on, or the pkg ABI of the repo will not match the
+  # firewall: 26.1 -> FreeBSD:14:amd64, 26.7 -> FreeBSD:15:amd64.
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - plugin_abi: "26.7"
+            freebsd: "15.0"
+          - plugin_abi: "26.1"
+            freebsd: "14.3"
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout plugin source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.PLUGIN_REPO }}
+          ref: ${{ github.event.inputs.plugin_ref || 'main' }}
+          path: plugin-src
+
+      - name: Checkout OPNsense plugin build framework
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: opnsense/plugins
+          ref: ${{ env.OPNSENSE_PLUGINS_REF }}
+          path: framework
+
+      - name: Assemble ports tree
+        run: |
+          set -eu
+
+          # PLUGIN_VERSION and the version the plugin reports at runtime must agree,
+          # otherwise pkg and the GUI disagree about what is installed
+          DEFAULTS=plugin-src/src/opnsense/mvc/app/models/OPNsense/DeviceMonitor/defaults.json
+          MAKE_VER=$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' "${PLUGIN_DIR}/Makefile")
+          JSON_VER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$DEFAULTS")
+          if [ "$MAKE_VER" != "$JSON_VER" ]; then
+            echo "::error::version drift: ${PLUGIN_DIR}/Makefile says $MAKE_VER, $DEFAULTS says $JSON_VER"
+            exit 1
+          fi
+          echo "building os-devicemonitor $MAKE_VER"
+
+          mkdir -p "tree/${PLUGIN_DIR}"
+          cp -R framework/Mk framework/Templates framework/Scripts framework/Keywords tree/
+          cp -R "${PLUGIN_DIR}/." "tree/${PLUGIN_DIR}/"
+          cp -R plugin-src/src "tree/${PLUGIN_DIR}/src"
+
+          # git tracks this 0644, but rc.subr needs it executable once installed.
+          # plugins.mk stages with tar -p, so the git mode IS the installed mode;
+          # install.sh used to paper over this with a chmod on the firewall.
+          chmod 0755 "tree/${PLUGIN_DIR}/src/etc/rc.d/devicemonitor"
+
+      - name: Build package and generate repo metadata
+        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
+        env:
+          PLUGIN_ABI: ${{ matrix.plugin_abi }}
+          PLUGIN_HASH: ${{ github.sha }}
+        with:
+          release: ${{ matrix.freebsd }}
+          usesh: true
+          sync: rsync
+          copyback: true
+          envs: "PLUGIN_DIR PLUGIN_ABI PLUGIN_HASH"
+          prepare: |
+            pkg install -y gettext-tools python3
+          run: |
+            set -eu
+            WS=$(pwd)
+            cd "tree/${PLUGIN_DIR}"
+
+            # install.sh used to run msgfmt on the firewall; a package can't, so the
+            # .mo files are compiled here and picked up by the generated plist
+            for po in src/opnsense/mvc/app/languages/*.po; do
+              msgfmt -o "${po%.po}.mo" "$po"
+            done
+
+            make package \
+              PLUGIN_ABI="$PLUGIN_ABI" \
+              PLUGIN_HASH="$PLUGIN_HASH" \
+              PLUGIN_PHP=84
+
+            PKGFILE=$(ls work/pkg/*.pkg)
+
+            # --- checks: fail loudly rather than publish a broken package ---
+            SRC_FILES=$(find src -type f | wc -l | tr -d ' ')
+            PLIST_FILES=$(wc -l < work/src/plist | tr -d ' ')
+            if [ "$PLIST_FILES" -ne "$((SRC_FILES + 1))" ]; then
+              echo "FAIL: plist has $PLIST_FILES entries, expected $((SRC_FILES + 1)) (src files + version file)"
+              exit 1
+            fi
+            pkg info -F "$PKGFILE" | grep -qE '^Name +: os-devicemonitor$' || {
+              echo "FAIL: unexpected package name"; pkg info -F "$PKGFILE"; exit 1; }
+            tar tf "$PKGFILE" | grep -q 'opnsense/version/devicemonitor$' || {
+              echo "FAIL: version annotation file missing, the GUI would not see the plugin"; exit 1; }
+            grep -q "\"product_abi\": \"$PLUGIN_ABI\"" "work/src/usr/local/opnsense/version/devicemonitor" || {
+              echo "FAIL: built package does not declare OPNsense ABI $PLUGIN_ABI"
+              cat "work/src/usr/local/opnsense/version/devicemonitor"; exit 1; }
+
+            # --- smoke test: really install it, then remove it again ---
+            # The OPNsense-only parts of the hooks are [ -f ]-guarded, so on plain
+            # FreeBSD they no-op and this exercises the plist, deps and scripts.
+            pkg add "$PKGFILE"
+            test -x /usr/local/etc/rc.d/devicemonitor || {
+              echo "FAIL: rc script installed non-executable, service would not start"; exit 1; }
+            test -s /usr/local/opnsense/version/devicemonitor || {
+              echo "FAIL: version annotation not installed"; exit 1; }
+            test -f /usr/local/opnsense/service/conf/actions.d/actions_devicemonitor.conf || {
+              echo "FAIL: configd actions not installed"; exit 1; }
+            pkg delete -y os-devicemonitor
+
+            # --- lay out the pkg repository ---
+            ABI=$(pkg config ABI)
+            REPO_DIR="$WS/site/repo/$ABI"
+            mkdir -p "$REPO_DIR/All"
+            cp work/pkg/*.pkg "$REPO_DIR/All/"
+            pkg repo "$REPO_DIR"
+            test -s "$REPO_DIR/meta.conf"
+            test -s "$REPO_DIR/packagesite.pkg"
+            ls -l "$REPO_DIR" "$REPO_DIR/All"
+
+            # tarred because the pkg ABI directory name contains ':',
+            # which upload-artifact rejects in a path
+            cd "$WS/site" && tar -czf "$WS/repo-$PLUGIN_ABI.tgz" repo
+
+      - name: Upload repo slice
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: repo-${{ matrix.plugin_abi }}
+          path: repo-${{ matrix.plugin_abi }}.tgz
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download repo slices
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: repo-*
+          merge-multiple: true
+          path: slices
+
+      - name: Merge slices into site
+        run: |
+          set -eu
+          for t in slices/*.tgz; do
+            echo "unpacking $t"
+            tar -xzf "$t" -C site
+          done
+          find site -type f | sort
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

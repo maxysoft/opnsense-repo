@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>maxysoft OPNsense repository</title>
+<h1>maxysoft OPNsense repository</h1>
+<p>Add the repository on your firewall, then install from
+   <em>System &rarr; Firmware &rarr; Plugins</em>:</p>
+<pre>fetch -o /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf https://maxysoft.github.io/opnsense-repo/mxy-opnsense-repo.conf
+pkg update</pre>
+<p>What is in here:</p>
+<pre>pkg search -g -r maxysoft \*</pre>
+<p>Remove the repository (installed packages stay):</p>
+<pre>rm /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf</pre>
+<p>Source: <a href="https://github.com/maxysoft/opnsense-repo">github.com/maxysoft/opnsense-repo</a></p>

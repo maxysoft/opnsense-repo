@@ -1,0 +1,10 @@
+mkdir -p /var/db/devicemonitor
+chmod 755 /var/db/devicemonitor
+
+# boot autostart - same rcvar the manual install.sh used to write
+echo 'devicemonitor_enable="YES"' > /etc/rc.conf.d/devicemonitor
+chmod 644 /etc/rc.conf.d/devicemonitor
+
+# configd was restarted by the auto-generated section above, let it settle
+sleep 2
+/usr/local/sbin/configctl devicemonitor start || true

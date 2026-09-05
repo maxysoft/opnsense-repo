@@ -1,0 +1,3 @@
+/usr/local/sbin/configctl devicemonitor stop || true
+pkill -f monitor_daemon.py || true
+rm -f /var/run/devicemonitor.pid

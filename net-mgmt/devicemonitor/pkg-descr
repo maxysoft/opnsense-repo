@@ -1,0 +1,13 @@
+Device Monitor tracks devices seen on the OPNsense LAN and VLAN interfaces,
+keeps a SQLite inventory of them and alerts on newly appearing devices by
+e-mail (sendmail or direct SMTP) or webhook.
+
+Ships a settings page, a device list, a Lobby dashboard widget and a
+configd-managed background scanning daemon.
+
+Device Monitor was originally written by Hacesoft (https://hacesoft.cz,
+https://github.com/hacesoft/opnsense-devicemonitor). This package is built
+from the maxysoft fork; all credit for the plugin itself goes to the original
+author.
+
+WWW: https://github.com/maxysoft/opnsense-devicemonitor

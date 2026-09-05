@@ -1,7 +1,12 @@
 mkdir -p /var/db/devicemonitor
 chmod 755 /var/db/devicemonitor
 
-# boot autostart - same rcvar the manual install.sh used to write
+# Boot autostart. Upstream plugins render /etc/rc.conf.d/<name> from a configd
+# template driven by their model; this plugin keeps its settings in
+# /var/db/devicemonitor/config.json rather than config.xml, so there is no model
+# for a template to read and the rcvar is written here instead. The daemon runs
+# regardless and consults its own "enabled" flag each loop, so YES is correct.
+# Removed again in +POST_DEINSTALL.
 echo 'devicemonitor_enable="YES"' > /etc/rc.conf.d/devicemonitor
 chmod 644 /etc/rc.conf.d/devicemonitor
 

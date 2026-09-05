@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       plugin_ref:
-        description: git ref of the plugin repo to build
+        description: override the plugin ref to build (defaults to the tag matching PLUGIN_VERSION)
         required: false
-        default: master
+        default: ""
 
 permissions:
-  contents: read
+  contents: write   # publishing releases, which are the package archive
   pages: write
   id-token: write
 
@@ -23,6 +23,7 @@ concurrency:
 env:
   PLUGIN_REPO: maxysoft/opnsense-devicemonitor
   PLUGIN_DIR: net-mgmt/devicemonitor
+  PLUGIN_PKGNAME: os-devicemonitor
   # OPNsense plugin build framework (Mk/, Templates/, Scripts/, Keywords/), pinned
   OPNSENSE_PLUGINS_REF: "26.7.3"
 
@@ -40,15 +41,44 @@ jobs:
             freebsd: "15.0"
           - plugin_abi: "26.1"
             freebsd: "14.3"
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - name: Checkout this repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A version has to identify one commit, so the plugin is built from the
+      # tag matching PLUGIN_VERSION rather than from a moving branch.
+      - name: Resolve plugin version and tag
+        id: ver
+        env:
+          PLUGIN_REF_OVERRIDE: ${{ github.event.inputs.plugin_ref }}
+        run: |
+          set -eu
+          VERSION=$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' "${PLUGIN_DIR}/Makefile")
+          TAG="v${VERSION}"
+          REF="${PLUGIN_REF_OVERRIDE:-$TAG}"
+
+          if [ -z "$PLUGIN_REF_OVERRIDE" ]; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://api.github.com/repos/${PLUGIN_REPO}/git/ref/tags/${TAG}")
+            if [ "$code" != "200" ]; then
+              echo "::error::${PLUGIN_REPO} has no tag ${TAG}. Tag the plugin at the commit this version should build from, or dispatch with an explicit plugin_ref."
+              exit 1
+            fi
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "building ${PLUGIN_PKGNAME} $VERSION from ${PLUGIN_REPO}@${REF}"
 
       - name: Checkout plugin source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.PLUGIN_REPO }}
-          ref: ${{ github.event.inputs.plugin_ref || 'master' }}
+          ref: ${{ steps.ver.outputs.ref }}
           path: plugin-src
 
       - name: Checkout OPNsense plugin build framework
@@ -81,7 +111,6 @@ jobs:
             echo "::error::version drift: ${PLUGIN_DIR}/Makefile says $MAKE_VER, $DEFAULTS says $JSON_VER"
             exit 1
           fi
-          echo "building os-devicemonitor $MAKE_VER"
 
           mkdir -p "tree/${PLUGIN_DIR}"
           cp -R framework/Mk framework/Templates framework/Scripts framework/Keywords tree/
@@ -96,12 +125,13 @@ jobs:
         env:
           PLUGIN_ABI: ${{ matrix.plugin_abi }}
           PLUGIN_HASH: ${{ github.sha }}
+          PLUGIN_VERSION: ${{ steps.ver.outputs.version }}
         with:
           release: ${{ matrix.freebsd }}
           usesh: true
           sync: rsync
           copyback: true
-          envs: "PLUGIN_DIR PLUGIN_ABI PLUGIN_HASH"
+          envs: "PLUGIN_DIR PLUGIN_ABI PLUGIN_HASH PLUGIN_VERSION PLUGIN_PKGNAME GITHUB_REPOSITORY"
           prepare: |
             pkg install -y gettext-tools python3 libxml2 php84
           run: |
@@ -143,8 +173,10 @@ jobs:
               echo "FAIL: plist has $PLIST_FILES entries, expected $((SRC_FILES + 1)) (src files + version file)"
               exit 1
             fi
-            pkg info -F "$PKGFILE" | grep -qE '^Name +: os-devicemonitor$' || {
+            pkg info -F "$PKGFILE" | grep -qE "^Name +: ${PLUGIN_PKGNAME}\$" || {
               echo "FAIL: unexpected package name"; pkg info -F "$PKGFILE"; exit 1; }
+            pkg info -F "$PKGFILE" | grep -qE "^Version +: ${PLUGIN_VERSION}\$" || {
+              echo "FAIL: package version does not match PLUGIN_VERSION"; pkg info -F "$PKGFILE"; exit 1; }
             tar tf "$PKGFILE" | grep -q 'opnsense/version/devicemonitor$' || {
               echo "FAIL: version annotation file missing, the GUI would not see the plugin"; exit 1; }
             grep -q "\"product_abi\": \"$PLUGIN_ABI\"" "work/src/usr/local/opnsense/version/devicemonitor" || {
@@ -161,17 +193,52 @@ jobs:
               echo "FAIL: version annotation not installed"; exit 1; }
             test -f /usr/local/opnsense/service/conf/actions.d/actions_devicemonitor.conf || {
               echo "FAIL: configd actions not installed"; exit 1; }
-            pkg delete -y os-devicemonitor
+            test -f /usr/local/opnsense/service/templates/OPNsense/DeviceMonitor/+TARGETS || {
+              echo "FAIL: configd templates not installed"; exit 1; }
+            pkg delete -y "${PLUGIN_PKGNAME}"
 
             # --- lay out the pkg repository ---
             ABI=$(pkg config ABI)
+            SAFE_ABI=$(echo "$ABI" | tr ':' '_')
             REPO_DIR="$WS/site/repo/$ABI"
-            mkdir -p "$REPO_DIR/All"
+            mkdir -p "$REPO_DIR/All" "$WS/release-assets"
+
+            # Older versions are archived as release assets. Pull the ones built
+            # for this ABI back in so the catalogue keeps every version instead
+            # of only the newest.
+            python3 - "$GITHUB_REPOSITORY" "$SAFE_ABI" > /tmp/urls.txt <<'PY'
+            import json, sys, urllib.request
+            repo, safe_abi = sys.argv[1], sys.argv[2]
+            url = "https://api.github.com/repos/%s/releases?per_page=100" % repo
+            try:
+                with urllib.request.urlopen(url, timeout=30) as fh:
+                    releases = json.load(fh)
+            except Exception as exc:
+                sys.stderr.write("could not list releases: %s\n" % exc)
+                releases = []
+            for rel in releases:
+                for asset in rel.get("assets", []):
+                    if asset["name"].endswith("-%s.pkg" % safe_abi):
+                        print(asset["browser_download_url"])
+            PY
+
+            while read -r url; do
+              [ -n "$url" ] || continue
+              base=$(basename "$url")
+              # strip the -<abi>.pkg suffix back to the canonical package name
+              orig="${base%-${SAFE_ABI}.pkg}.pkg"
+              echo ">>> archived: $orig"
+              fetch -q -o "$REPO_DIR/All/$orig" "$url" || echo "WARN: could not fetch $url"
+            done < /tmp/urls.txt
+
             cp work/pkg/*.pkg "$REPO_DIR/All/"
+            cp "$PKGFILE" "$WS/release-assets/${PLUGIN_PKGNAME}-${PLUGIN_VERSION}-${SAFE_ABI}.pkg"
+
             pkg repo "$REPO_DIR"
             test -s "$REPO_DIR/meta.conf"
             test -s "$REPO_DIR/packagesite.pkg"
-            ls -l "$REPO_DIR" "$REPO_DIR/All"
+            echo ">>> versions in the catalogue for $ABI:"
+            ls -1 "$REPO_DIR/All"
 
             # tarred because the pkg ABI directory name contains ':',
             # which upload-artifact rejects in a path
@@ -184,8 +251,62 @@ jobs:
           path: repo-${{ matrix.plugin_abi }}.tgz
           if-no-files-found: error
 
-  deploy:
+      - name: Upload release asset
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: asset-${{ matrix.plugin_abi }}
+          path: release-assets/*.pkg
+          if-no-files-found: error
+
+  # Archive before publishing, so a version can never reach the repository
+  # without a permanent copy existing to roll back to.
+  release:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: asset-*
+          merge-multiple: true
+          path: assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -eu
+          ls -l assets
+
+          cat > /tmp/notes.md <<EOF
+          Packages for OPNsense 26.1 (\`FreeBSD:14:amd64\`) and 26.7 (\`FreeBSD:15:amd64\`).
+
+          For the current version, add the repository and use the plugin manager.
+          To pin or roll back to this specific version:
+
+          \`\`\`
+          pkg add https://github.com/${REPO}/releases/download/${TAG}/os-devicemonitor-${VERSION}-FreeBSD_15_amd64.pkg
+          \`\`\`
+
+          Use the \`FreeBSD_14_amd64\` asset on OPNsense 26.1.
+          EOF
+          sed -i 's/^          //' /tmp/notes.md
+
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            echo "release $TAG exists, replacing its assets"
+            gh release upload "$TAG" assets/*.pkg --repo "$REPO" --clobber
+          else
+            gh release create "$TAG" assets/*.pkg \
+              --repo "$REPO" \
+              --title "os-devicemonitor $VERSION" \
+              --notes-file /tmp/notes.md
+          fi
+
+  deploy:
+    needs: [build, release]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -51,14 +51,21 @@ own behaviour, upstream; open issues here only for packaging problems.
 
 `.github/workflows/build.yml` on every push to `master`:
 
-1. checks out this repo, the plugin source, and the OPNsense plugin build
-   framework (`opnsense/plugins`, pinned to `OPNSENSE_PLUGINS_REF`),
-2. assembles them into a throwaway ports tree under `tree/`,
-3. in a FreeBSD VM: compiles the `.po` translations, runs `make package`,
-   verifies the result, then `pkg repo` over `site/repo/${ABI}/`,
-4. merges the per-series results and publishes `site/` to GitHub Pages.
+1. resolves `PLUGIN_VERSION` to the matching tag in the plugin repo and checks
+   the plugin out at that tag, so a version always identifies one commit,
+2. checks out the OPNsense plugin build framework (`opnsense/plugins`) and
+   `opnsense/core` for the lint rules, both pinned to `OPNSENSE_PLUGINS_REF`,
+3. assembles them into a throwaway ports tree under `tree/`,
+4. in a FreeBSD VM: runs the official lint targets and `php -l`, compiles the
+   `.po` translations, runs `make package`, installs and removes the result to
+   prove it works, pulls previously released packages back in, then runs
+   `pkg repo` over `site/repo/${ABI}/`,
+5. publishes every built package as a GitHub Release,
+6. merges the per-series results and publishes `site/` to GitHub Pages.
 
-Nothing generated is committed; `site/repo/` is gitignored.
+The built packages are **not stored in git**, they are published to the Pages
+deployment and attached to Releases. `site/repo/` is gitignored because it is
+generated on every run; git holds only the sources needed to reproduce it.
 
 ### Supported OPNsense series
 
@@ -82,11 +89,32 @@ a checkout step for its source, and extend the assemble/build steps. The plugin
 `Makefile` needs only `PLUGIN_NAME`, `PLUGIN_VERSION` and `PLUGIN_COMMENT`;
 everything else has a sane default in `Mk/plugins.mk`.
 
+### Installing a specific version, or rolling back
+
+The repository catalogue carries every version that has been released, not just
+the newest, so the plugin manager and `pkg upgrade` see the latest while older
+builds stay installable.
+
+Every build is also attached to a [GitHub
+Release](https://github.com/maxysoft/opnsense-repo/releases), which is the
+permanent archive. To pin or roll back, install the asset directly:
+
+```
+pkg add https://github.com/maxysoft/opnsense-repo/releases/download/v2.3/os-devicemonitor-2.3-FreeBSD_15_amd64.pkg
+```
+
+Use the `FreeBSD_14_amd64` asset on OPNsense 26.1. Add `-f` to force a
+downgrade over a newer installed version, and remember that `pkg upgrade` will
+move it forward again unless you `pkg lock os-devicemonitor`.
+
 ### Releasing a new plugin version
 
-Bump `PLUGIN_VERSION` in `net-mgmt/devicemonitor/Makefile` to match the
-`version` field in the plugin's `defaults.json` and push. CI fails the build if
-the two disagree, so the package version can't silently drift from the version
+Tag the plugin repo at the commit to release (`git tag -a v2.4 -m 'Device
+Monitor 2.4' && git push origin v2.4`), then bump `PLUGIN_VERSION` in
+`net-mgmt/devicemonitor/Makefile` to match and push here. The build fails with a
+clear message if the tag does not exist, and fails if `PLUGIN_VERSION` and the
+`version` field in the plugin's `defaults.json` disagree, so the package version
+cannot silently drift from the version
 the plugin reports at runtime.
 
 ## Signing

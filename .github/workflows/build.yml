@@ -76,12 +76,10 @@ jobs:
           mkdir -p "tree/${PLUGIN_DIR}"
           cp -R framework/Mk framework/Templates framework/Scripts framework/Keywords tree/
           cp -R "${PLUGIN_DIR}/." "tree/${PLUGIN_DIR}/"
+          # plugins.mk stages with tar -p, so git modes are the installed modes.
+          # The rc script is 0755 in the plugin repo; the smoke test below fails
+          # the build if that ever regresses.
           cp -R plugin-src/src "tree/${PLUGIN_DIR}/src"
-
-          # git tracks this 0644, but rc.subr needs it executable once installed.
-          # plugins.mk stages with tar -p, so the git mode IS the installed mode;
-          # install.sh used to paper over this with a chmod on the firewall.
-          chmod 0755 "tree/${PLUGIN_DIR}/src/etc/rc.d/devicemonitor"
 
       - name: Build package and generate repo metadata
         uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5

@@ -393,7 +393,7 @@ jobs:
           else
             gh release create "$TAG" assets/*.pkg \
               --repo "$REPO" \
-              --title "os-devicemonitor $VERSION" \
+              --title "os-devicemonitor $PKGVERSION" \
               --notes-file /tmp/notes.md
           fi
 

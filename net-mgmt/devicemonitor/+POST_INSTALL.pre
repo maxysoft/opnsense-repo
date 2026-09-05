@@ -1,0 +1,5 @@
+# Runs before the auto-generated section below, which reloads the configd
+# templates. Those render /var/db/devicemonitor/config.json, so the directory
+# has to exist first.
+mkdir -p /var/db/devicemonitor
+chmod 755 /var/db/devicemonitor

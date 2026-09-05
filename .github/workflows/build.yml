@@ -58,6 +58,16 @@ jobs:
           ref: ${{ env.OPNSENSE_PLUGINS_REF }}
           path: framework
 
+      # Mk/lint.mk in the plugins tree is a stub that includes the real rules
+      # from the core repository, so the lint targets only exist when core is
+      # checked out next to the tree.
+      - name: Checkout OPNsense core (lint rules)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: opnsense/core
+          ref: ${{ env.OPNSENSE_PLUGINS_REF }}
+          path: core
+
       - name: Assemble ports tree
         run: |
           set -eu
@@ -93,11 +103,25 @@ jobs:
           copyback: true
           envs: "PLUGIN_DIR PLUGIN_ABI PLUGIN_HASH"
           prepare: |
-            pkg install -y gettext-tools python3
+            pkg install -y gettext-tools python3 libxml2 php84
           run: |
             set -eu
             WS=$(pwd)
             cd "tree/${PLUGIN_DIR}"
+
+            # Official lint rules from opnsense/core. lint-acl, lint-class and
+            # lint-import are skipped: they run scripts against a full core
+            # checkout rather than a plugin.
+            make lint-desc lint-shell lint-xml lint-model lint-exec
+
+            # lint-model only reports, it does not fail, so turn any output
+            # into a build failure.
+            if [ -n "$(make lint-model 2>&1)" ]; then
+              echo "FAIL: model lint findings:"; make lint-model 2>&1; exit 1
+            fi
+
+            for f in $(find src -name '*.php'); do php -l "$f" > /dev/null; done
+            echo ">>> lint clean"
 
             # install.sh used to run msgfmt on the firewall; a package can't, so the
             # .mo files are compiled here and picked up by the generated plist

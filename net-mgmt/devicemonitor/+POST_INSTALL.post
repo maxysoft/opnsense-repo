@@ -1,15 +1,8 @@
-mkdir -p /var/db/devicemonitor
-chmod 755 /var/db/devicemonitor
+# The rendered configuration can hold an SMTP password, so keep it readable
+# only by root and the services that run as root.
+chmod 600 /var/db/devicemonitor/config.json 2>/dev/null || true
 
-# Boot autostart. Upstream plugins render /etc/rc.conf.d/<name> from a configd
-# template driven by their model; this plugin keeps its settings in
-# /var/db/devicemonitor/config.json rather than config.xml, so there is no model
-# for a template to read and the rcvar is written here instead. The daemon runs
-# regardless and consults its own "enabled" flag each loop, so YES is correct.
-# Removed again in +POST_DEINSTALL.
-echo 'devicemonitor_enable="YES"' > /etc/rc.conf.d/devicemonitor
-chmod 644 /etc/rc.conf.d/devicemonitor
-
-# configd was restarted by the auto-generated section above, let it settle
+# configd was restarted and the templates rendered by the section above, which
+# also wrote /etc/rc.conf.d/devicemonitor. Give configd a moment, then start.
 sleep 2
 /usr/local/sbin/configctl devicemonitor start || true

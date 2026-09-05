@@ -42,7 +42,7 @@ rm /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf
 
 This repository only packages and distributes plugins; it does not author them.
 Device Monitor was written by **[Hacesoft](https://github.com/hacesoft)**
-([hacesoft.cz](https://hacesoft.cz)) — see
+([hacesoft.cz](https://hacesoft.cz)). See
 [hacesoft/opnsense-devicemonitor](https://github.com/hacesoft/opnsense-devicemonitor)
 for the upstream project. Please send thanks, and any report about the plugin's
 own behaviour, upstream; open issues here only for packaging problems.
@@ -58,7 +58,7 @@ own behaviour, upstream; open issues here only for packaging problems.
    verifies the result, then `pkg repo` over `site/repo/${ABI}/`,
 4. merges the per-series results and publishes `site/` to GitHub Pages.
 
-Nothing generated is committed — `site/repo/` is gitignored.
+Nothing generated is committed; `site/repo/` is gitignored.
 
 ### Supported OPNsense series
 
@@ -103,6 +103,6 @@ The repository is unsigned; trust rests on HTTPS, same as
 
 ## Licence
 
-BSD 3-Clause — see [LICENSE](LICENSE). This covers the packaging in this
+BSD 3-Clause. See [LICENSE](LICENSE). This covers the packaging in this
 repository only; each packaged plugin keeps its own licence, granted by its
 original author.

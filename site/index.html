@@ -1,13 +1,372 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>maxysoft OPNsense repository</title>
-<h1>maxysoft OPNsense repository</h1>
-<p>Add the repository on your firewall, then install from
-   <em>System &rarr; Firmware &rarr; Plugins</em>:</p>
-<pre>fetch -o /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf https://maxysoft.github.io/opnsense-repo/mxy-opnsense-repo.conf
-pkg update</pre>
-<p>What is in here:</p>
-<pre>pkg search -g -r maxysoft \*</pre>
-<p>Remove the repository (installed packages stay):</p>
-<pre>rm /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf</pre>
-<p>Source: <a href="https://github.com/maxysoft/opnsense-repo">github.com/maxysoft/opnsense-repo</a></p>
+<meta name="description" content="A pkg repository for OPNsense. Add it once, then install and update the plugins from System, Firmware, Plugins.">
+<meta name="color-scheme" content="dark">
+<style>
+  /* Palette taken from the upstream opnsense-dark theme
+     (opnsense/core src/opnsense/www/themes/opnsense-dark). */
+  :root {
+    --bg:        #101218;
+    --surface:   #171a22;
+    --surface-2: #1d212b;
+    --line:      #2b303b;
+    --line-soft: #22262f;
+    --text:      #ececec;
+    --muted:     #b9b9b9;
+    --dim:       #8b8f99;
+    --brand:     #c03e14;  /* 3.5:1 on --bg: borders and large type only */
+    --brand-lit: #e2673a;  /* 5.6:1 on --bg: links and small accent text */
+    --ok:        #9bd275;
+    --radius:    10px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Source Sans Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+                 "Liberation Mono", monospace;
+  }
+
+  a { color: var(--brand-lit); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--brand-lit);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .wrap { width: 100%; max-width: 940px; margin: 0 auto; padding: 0 24px; }
+
+  /* Masthead ------------------------------------------------------------ */
+  header {
+    border-bottom: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, #12151c 0%, var(--bg) 100%);
+  }
+  .masthead {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .wordmark:hover { text-decoration: none; }
+  .tick { width: 3px; height: 20px; background: var(--brand); border-radius: 2px; }
+  .masthead nav a { color: var(--muted); font-size: 15px; }
+  .masthead nav a:hover { color: var(--text); }
+
+  /* Hero ---------------------------------------------------------------- */
+  .hero { padding: 72px 0 56px; border-bottom: 1px solid var(--line-soft); }
+  h1 {
+    margin: 0 0 16px;
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
+  .lede {
+    margin: 0 0 32px;
+    max-width: 60ch;
+    font-size: 1.0625rem;
+    color: var(--muted);
+  }
+  .lede strong { color: var(--text); font-weight: 600; }
+
+  /* Command block ------------------------------------------------------- */
+  .cmd {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--brand);
+    border-radius: var(--radius);
+    padding: 18px 108px 18px 20px;
+    overflow-x: auto;
+  }
+  .cmd pre {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text);
+    white-space: pre;
+  }
+  .cmd .prompt { color: var(--dim); user-select: none; }
+  .copy {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    min-width: 82px;
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color .15s ease, border-color .15s ease, transform .15s ease;
+  }
+  .copy:hover { color: var(--text); border-color: #3a4150; }
+  .copy:active { transform: translateY(1px); }
+  .copy[data-copied="true"] { color: var(--ok); border-color: var(--ok); }
+
+  /* Sections ------------------------------------------------------------ */
+  section { padding: 56px 0; border-bottom: 1px solid var(--line-soft); }
+  h2 {
+    margin: 0 0 8px;
+    font-size: 1.375rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  .sub { margin: 0 0 28px; color: var(--muted); max-width: 62ch; }
+
+  /* Package panel ------------------------------------------------------- */
+  .pkg {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  .pkg-name {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .pkg-desc { margin: 10px 0 18px; color: var(--muted); max-width: 60ch; }
+  .pkg-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-soft);
+    font-size: 14px;
+    color: var(--dim);
+  }
+  .pkg-meta span { color: var(--muted); }
+
+  /* Release grid -------------------------------------------------------- */
+  .releases {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .release {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .release-v {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .release-abi {
+    margin-top: 10px;
+    font-size: 13.5px;
+    color: var(--muted);
+    word-break: break-all;
+  }
+  .release-os { margin-top: 4px; font-size: 13.5px; color: var(--dim); }
+
+  /* Manage -------------------------------------------------------------- */
+  .manage { display: grid; gap: 20px; }
+  .manage h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .manage p { margin: 0 0 10px; color: var(--dim); font-size: 14px; }
+  .manage code {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 12px 16px;
+    font-size: 13.5px;
+    color: var(--muted);
+    overflow-x: auto;
+  }
+
+  /* Footer -------------------------------------------------------------- */
+  footer { padding: 40px 0 64px; color: var(--dim); font-size: 14px; }
+  footer p { margin: 0 0 8px; max-width: 70ch; }
+
+  @media (max-width: 720px) {
+    .hero { padding: 48px 0 40px; }
+    section { padding: 40px 0; }
+    .releases { grid-template-columns: 1fr; }
+    .cmd { padding: 16px; }
+    .copy { position: static; margin-top: 14px; width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap masthead">
+    <a class="wordmark" href="/opnsense-repo/">
+      <span class="tick" aria-hidden="true"></span>
+      maxysoft
+    </a>
+    <nav>
+      <a href="https://github.com/maxysoft/opnsense-repo">Source</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+
+    <div class="hero">
+      <h1>An OPNsense plugin repository</h1>
+      <p class="lede">
+        Add it once as root, then install and update these plugins from
+        <strong>System &rarr; Firmware &rarr; Plugins</strong>, the same way as any
+        official one.
+      </p>
+
+      <div class="cmd">
+        <button class="copy" type="button" data-copy="setup">Copy</button>
+<pre id="setup"><span class="prompt">#</span> fetch -o /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf https://maxysoft.github.io/opnsense-repo/mxy-opnsense-repo.conf
+<span class="prompt">#</span> pkg update</pre>
+      </div>
+    </div>
+
+    <section>
+      <h2>What is in it</h2>
+      <p class="sub">One package today. The repository is built from source on every change.</p>
+
+      <div class="pkg">
+        <div class="pkg-name mono">os-devicemonitor</div>
+        <p class="pkg-desc">
+          Tracks devices appearing on your LAN and VLAN interfaces and alerts on new
+          ones by e-mail or webhook. Adds a settings page, a device list and a Lobby
+          dashboard widget.
+        </p>
+        <div class="pkg-meta">
+          <div>Written by <span><a href="https://github.com/hacesoft">Hacesoft</a></span></div>
+          <div>Source <span><a href="https://github.com/maxysoft/opnsense-devicemonitor">maxysoft/opnsense-devicemonitor</a></span></div>
+          <div>Licence <span>BSD 2-Clause</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Supported releases</h2>
+      <p class="sub">
+        A separate package is built per OPNsense series, because each one sits on a
+        different FreeBSD major. Your firewall picks the right one on its own.
+      </p>
+
+      <div class="releases">
+        <div class="release">
+          <div class="release-v">26.7</div>
+          <div class="release-abi mono">FreeBSD:15:amd64</div>
+          <div class="release-os">Built on FreeBSD 15</div>
+        </div>
+        <div class="release">
+          <div class="release-v">26.1</div>
+          <div class="release-abi mono">FreeBSD:14:amd64</div>
+          <div class="release-os">Built on FreeBSD 14</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Managing it</h2>
+      <div class="manage">
+        <div>
+          <h3>See what the repository offers</h3>
+          <code class="mono">pkg search -g -r maxysoft \*</code>
+        </div>
+        <div>
+          <h3>See what you installed from it</h3>
+          <code class="mono">pkg query -a '%R %n-%v' | grep maxysoft</code>
+        </div>
+        <div>
+          <h3>Remove the repository</h3>
+          <p>Packages you already installed stay where they are.</p>
+          <code class="mono">rm /usr/local/etc/pkg/repos/mxy-opnsense-repo.conf</code>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      This site distributes the packages, it does not author the plugins. Device
+      Monitor is the work of <a href="https://github.com/hacesoft">Hacesoft</a>
+      (<a href="https://hacesoft.cz">hacesoft.cz</a>); please send thanks and any
+      report about the plugin itself upstream.
+    </p>
+    <p>
+      Packaging is BSD 3-Clause and lives at
+      <a href="https://github.com/maxysoft/opnsense-repo">maxysoft/opnsense-repo</a>.
+      Served over HTTPS, unsigned.
+    </p>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var src = document.getElementById(btn.dataset.copy);
+      // strip the leading "#" prompts so the text pastes straight into a shell
+      var text = Array.from(src.childNodes)
+        .filter(function (n) { return !(n.nodeType === 1 && n.classList.contains("prompt")); })
+        .map(function (n) { return n.textContent; })
+        .join("")
+        .split("\n")
+        .map(function (l) { return l.trim(); })
+        .filter(Boolean)
+        .join("\n");
+
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = "Copied";
+        btn.dataset.copied = "true";
+        setTimeout(function () {
+          btn.textContent = "Copy";
+          btn.dataset.copied = "false";
+        }, 1600);
+      }, function () {
+        btn.textContent = "Ctrl+C";
+        setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

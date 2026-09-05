@@ -1,6 +1,5 @@
 PLUGIN_NAME=		devicemonitor
-PLUGIN_VERSION=		2.3
-PLUGIN_REVISION=	1
+PLUGIN_VERSION=		2.3.1
 PLUGIN_COMMENT=		Device Monitor - network device tracking
 PLUGIN_MAINTAINER=	maxysoft
 PLUGIN_WWW=		https://github.com/maxysoft/opnsense-devicemonitor

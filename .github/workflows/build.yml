@@ -132,6 +132,44 @@ jobs:
           # the build if that ever regresses.
           cp -R plugin-src/src "tree/${PLUGIN_DIR}/src"
 
+      # Before the first migration runs there is no config node, and Jinja's
+      # default Undefined raises on attribute access. A template that walks the
+      # path directly renders fine once configured and fails on a clean
+      # install, which is invisible until someone installs the package.
+      # Templates here therefore have to render against an empty config.
+      - name: Check configd templates render on a clean install
+        run: |
+          set -eu
+          python3 -m pip install --quiet jinja2
+          python3 - <<'PY'
+          import glob, json, os, sys
+          import jinja2
+
+          base = os.path.join('tree', os.environ['PLUGIN_DIR'], 'src/opnsense/service/templates')
+          env = jinja2.Environment(trim_blocks=True)   # matches configd's environment
+          failed = False
+
+          for path in sorted(glob.glob(base + '/**/*', recursive=True)):
+              if not os.path.isfile(path) or os.path.basename(path) == '+TARGETS':
+                  continue
+              try:
+                  rendered = env.from_string(open(path).read()).render(OPNsense={})
+              except Exception as exc:
+                  print('FAIL %s does not render without a config node: %s' % (path, exc))
+                  failed = True
+                  continue
+              if path.endswith('.json'):
+                  try:
+                      json.loads(rendered)
+                  except Exception as exc:
+                      print('FAIL %s did not produce valid JSON: %s' % (path, exc))
+                      failed = True
+                      continue
+              print('ok   %s' % path)
+
+          sys.exit(1 if failed else 0)
+          PY
+
       - name: Build package and generate repo metadata
         uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1.5.5
         env:

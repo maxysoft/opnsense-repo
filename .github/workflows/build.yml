@@ -57,22 +57,34 @@ jobs:
         run: |
           set -eu
           VERSION=$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' "${PLUGIN_DIR}/Makefile")
-          TAG="v${VERSION}"
-          REF="${PLUGIN_REF_OVERRIDE:-$TAG}"
+          REVISION=$(sed -n 's/^PLUGIN_REVISION=[[:space:]]*//p' "${PLUGIN_DIR}/Makefile")
+
+          # PLUGIN_REVISION bumps the package without the plugin source
+          # changing, so the source tag and the release tag differ.
+          if [ -n "${REVISION:-}" ] && [ "${REVISION:-0}" != "0" ]; then
+            PKGVERSION="${VERSION}_${REVISION}"
+          else
+            PKGVERSION="${VERSION}"
+          fi
+
+          SOURCE_TAG="v${VERSION}"
+          RELEASE_TAG="v${PKGVERSION}"
+          REF="${PLUGIN_REF_OVERRIDE:-$SOURCE_TAG}"
 
           if [ -z "$PLUGIN_REF_OVERRIDE" ]; then
             code=$(curl -s -o /dev/null -w '%{http_code}' \
-              "https://api.github.com/repos/${PLUGIN_REPO}/git/ref/tags/${TAG}")
+              "https://api.github.com/repos/${PLUGIN_REPO}/git/ref/tags/${SOURCE_TAG}")
             if [ "$code" != "200" ]; then
-              echo "::error::${PLUGIN_REPO} has no tag ${TAG}. Tag the plugin at the commit this version should build from, or dispatch with an explicit plugin_ref."
+              echo "::error::${PLUGIN_REPO} has no tag ${SOURCE_TAG}. Tag the plugin at the commit this version should build from, or dispatch with an explicit plugin_ref."
               exit 1
             fi
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "pkgversion=$PKGVERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "building ${PLUGIN_PKGNAME} $VERSION from ${PLUGIN_REPO}@${REF}"
+          echo "building ${PLUGIN_PKGNAME} $PKGVERSION from ${PLUGIN_REPO}@${REF}"
 
       - name: Checkout plugin source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -126,12 +138,13 @@ jobs:
           PLUGIN_ABI: ${{ matrix.plugin_abi }}
           PLUGIN_HASH: ${{ github.sha }}
           PLUGIN_VERSION: ${{ steps.ver.outputs.version }}
+          PLUGIN_PKGVERSION: ${{ steps.ver.outputs.pkgversion }}
         with:
           release: ${{ matrix.freebsd }}
           usesh: true
           sync: rsync
           copyback: true
-          envs: "PLUGIN_DIR PLUGIN_ABI PLUGIN_HASH PLUGIN_VERSION PLUGIN_PKGNAME GITHUB_REPOSITORY"
+          envs: "PLUGIN_DIR PLUGIN_ABI PLUGIN_HASH PLUGIN_VERSION PLUGIN_PKGVERSION PLUGIN_PKGNAME GITHUB_REPOSITORY"
           prepare: |
             pkg install -y gettext-tools python3 libxml2 php84
           run: |
@@ -175,8 +188,31 @@ jobs:
             fi
             pkg info -F "$PKGFILE" | grep -qE "^Name +: ${PLUGIN_PKGNAME}\$" || {
               echo "FAIL: unexpected package name"; pkg info -F "$PKGFILE"; exit 1; }
-            pkg info -F "$PKGFILE" | grep -qE "^Version +: ${PLUGIN_VERSION}\$" || {
-              echo "FAIL: package version does not match PLUGIN_VERSION"; pkg info -F "$PKGFILE"; exit 1; }
+            pkg info -F "$PKGFILE" | grep -qE "^Version +: ${PLUGIN_PKGVERSION}\$" || {
+              echo "FAIL: package version does not match ${PLUGIN_PKGVERSION}"; pkg info -F "$PKGFILE"; exit 1; }
+
+            # Dependencies resolve against the FreeBSD ports repo at build time,
+            # but have to exist in the OPNsense repository at install time. Those
+            # differ: OPNsense ships python313, not the python3 meta package.
+            # Without this check a bad dependency only shows up on a firewall as
+            # "has a missing dependency".
+            ABI_NOW=$(pkg config ABI)
+            fetch -q -o /tmp/oscat.pkg \
+              "https://pkg.opnsense.org/${ABI_NOW}/${PLUGIN_ABI}/latest/packagesite.pkg"
+            tar -xOf /tmp/oscat.pkg packagesite.yaml > /tmp/oscat.yaml
+            python3 - "$PKGFILE" /tmp/oscat.yaml <<'PY'
+            import json, subprocess, sys
+            pkgfile, catalogue = sys.argv[1], sys.argv[2]
+            deps = subprocess.run(['pkg', 'query', '-F', pkgfile, '%dn'],
+                                  capture_output=True, text=True).stdout.split()
+            available = {json.loads(line)['name'] for line in open(catalogue) if line.strip()}
+            print("declared dependencies:", deps or "(none)")
+            missing = [d for d in deps if d not in available]
+            if missing:
+                print("FAIL: not present in the OPNsense repository: %s" % missing)
+                sys.exit(1)
+            print(">>> every dependency exists in the OPNsense repository")
+            PY
             tar tf "$PKGFILE" | grep -q 'opnsense/version/devicemonitor$' || {
               echo "FAIL: version annotation file missing, the GUI would not see the plugin"; exit 1; }
             grep -q "\"product_abi\": \"$PLUGIN_ABI\"" "work/src/usr/local/opnsense/version/devicemonitor" || {
@@ -232,7 +268,7 @@ jobs:
             done < /tmp/urls.txt
 
             cp work/pkg/*.pkg "$REPO_DIR/All/"
-            cp "$PKGFILE" "$WS/release-assets/${PLUGIN_PKGNAME}-${PLUGIN_VERSION}-${SAFE_ABI}.pkg"
+            cp "$PKGFILE" "$WS/release-assets/${PLUGIN_PKGNAME}-${PLUGIN_PKGVERSION}-${SAFE_ABI}.pkg"
 
             pkg repo "$REPO_DIR"
             test -s "$REPO_DIR/meta.conf"

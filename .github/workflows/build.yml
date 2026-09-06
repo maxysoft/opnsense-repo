@@ -117,15 +117,15 @@ jobs:
         run: |
           set -eu
 
-          # PLUGIN_VERSION and the version the plugin reports at runtime must agree,
-          # otherwise pkg and the GUI disagree about what is installed
+          # The version has a single source: PLUGIN_VERSION here, which also
+          # selects the plugin tag to build and becomes the annotation the GUI
+          # reads. The plugin repo no longer carries a copy to drift from.
           DEFAULTS=plugin-src/src/opnsense/mvc/app/models/OPNsense/DeviceMonitor/defaults.json
-          MAKE_VER=$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*//p' "${PLUGIN_DIR}/Makefile")
-          JSON_VER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$DEFAULTS")
-          if [ "$MAKE_VER" != "$JSON_VER" ]; then
-            echo "::error::version drift: ${PLUGIN_DIR}/Makefile says $MAKE_VER, $DEFAULTS says $JSON_VER"
+          if grep -q '"version"' "$DEFAULTS"; then
+            echo "::error::$DEFAULTS reintroduced a version field; PLUGIN_VERSION is the only source"
             exit 1
           fi
+          python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$DEFAULTS"
 
           mkdir -p "tree/${PLUGIN_DIR}"
           cp -R framework/Mk framework/Templates framework/Scripts framework/Keywords tree/

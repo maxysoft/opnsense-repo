@@ -140,6 +140,18 @@ jobs:
       # path directly renders fine once configured and fails on a clean
       # install, which is invisible until someone installs the package.
       # Templates here therefore have to render against an empty config.
+      # Drives the scanner's transition detection against a synthetic feed.
+      # Catches the class of defect that only appears once the scanner has run
+      # twice, which nothing else here exercises.
+      - name: Run the plugin's scanner tests
+        run: |
+          set -eu
+          if [ -f plugin-src/tests/test_scan_logic.py ]; then
+            python3 plugin-src/tests/test_scan_logic.py
+          else
+            echo "::warning::plugin has no scanner tests at this ref"
+          fi
+
       - name: Check configd templates render on a clean install
         run: |
           set -eu

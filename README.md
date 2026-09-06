@@ -4,6 +4,12 @@ Custom OPNsense plugin repository. Packages are built from source on FreeBSD in
 CI and published as a signed-by-TLS `pkg` repository on GitHub Pages, so plugins
 show up in **System → Firmware → Plugins** like any official one.
 
+> **AI disclaimer.** This repository, its build pipeline and the packaging it
+> produces were written with AI assistance and reviewed by a human before
+> release. The packages install on a firewall, so treat them as you would any
+> third-party repository: read the code, test somewhere you can afford to break,
+> and report anything that looks wrong.
+
 ## Install the repository
 
 On the firewall, as root:

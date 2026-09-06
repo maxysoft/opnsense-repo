@@ -155,7 +155,7 @@ jobs:
       - name: Check configd templates render on a clean install
         run: |
           set -eu
-          python3 -m pip install --quiet jinja2
+          python3 -m pip install --quiet 'jinja2==3.1.6'
           python3 - <<'PY'
           import glob, json, os, sys
           import jinja2
@@ -378,7 +378,7 @@ jobs:
           : > /tmp/changes.md
           if [ -n "$PREV" ] && [ "$PREV" != "$SOURCE_TAG" ]; then
             gh api "repos/${PLUGIN_REPO}/compare/${PREV}...${SOURCE_TAG}" \
-              --jq '.commits[].commit.message | split("\n")[0]' 2>/dev/null \
+              --jq '[.commits[].commit.message | split("\n")[0]] | reverse | .[]' 2>/dev/null \
               | grep -v '^Merge ' | head -10 | sed 's/^/- /' > /tmp/changes.md || true
           fi
           [ -s /tmp/changes.md ] || echo "- see the commit history" > /tmp/changes.md

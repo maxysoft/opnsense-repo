@@ -217,6 +217,16 @@ jobs:
             fi
 
             for f in $(find src -name '*.php'); do php -l "$f" > /dev/null; done
+
+            # The payload builders carry no OPNsense dependency, so their
+            # wording and event mapping are checked here rather than only on a
+            # firewall. tests/ is not part of the package, so it is read from
+            # the synced workspace.
+            if [ -f "$WS/plugin-src/tests/test_apprise_payload.php" ]; then
+              php "$WS/plugin-src/tests/test_apprise_payload.php"
+            else
+              echo "::warning::plugin has no payload tests at this ref"
+            fi
             echo ">>> lint clean"
 
             # install.sh used to run msgfmt on the firewall; a package can't, so the

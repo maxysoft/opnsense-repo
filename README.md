@@ -97,16 +97,20 @@ everything else has a sane default in `Mk/plugins.mk`.
 
 ### Installing a specific version, or rolling back
 
-The repository catalogue carries every version that has been released, not just
-the newest, so the plugin manager and `pkg upgrade` see the latest while older
-builds stay installable.
+The catalogue carries exactly one version, the newest. A pkg catalogue is built
+on that assumption: its repository queries order candidates by package name with
+no version ordering, so several rows under one name let pkg read whichever it
+reaches first. That is not theoretical - publishing every version here made
+`pkg upgrade` report an up-to-date system while a newer build sat in the
+catalogue, as soon as one version number sorted differently as a string than as
+a version (`2.10.0` before `2.3.2`).
 
-Every build is also attached to a [GitHub
+Every build is attached to a [GitHub
 Release](https://github.com/maxysoft/opnsense-repo/releases), which is the
 permanent archive. To pin or roll back, install the asset directly:
 
 ```
-pkg add https://github.com/maxysoft/opnsense-repo/releases/download/v2.3/os-devicemonitor-2.3-FreeBSD_15_amd64.pkg
+pkg add https://github.com/maxysoft/opnsense-repo/releases/download/v2.9.2/os-devicemonitor-2.9.2-FreeBSD_15_amd64.pkg
 ```
 
 Use the `FreeBSD_14_amd64` asset on OPNsense 26.1. Add `-f` to force a

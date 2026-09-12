@@ -305,36 +305,25 @@ jobs:
             REPO_DIR="$WS/site/repo/$ABI"
             mkdir -p "$REPO_DIR/All" "$WS/release-assets"
 
-            # Older versions are archived as release assets. Pull the ones built
-            # for this ABI back in so the catalogue keeps every version instead
-            # of only the newest.
-            python3 - "$GITHUB_REPOSITORY" "$SAFE_ABI" > /tmp/urls.txt <<'PY'
-            import json, sys, urllib.request
-            repo, safe_abi = sys.argv[1], sys.argv[2]
-            url = "https://api.github.com/repos/%s/releases?per_page=100" % repo
-            try:
-                with urllib.request.urlopen(url, timeout=30) as fh:
-                    releases = json.load(fh)
-            except Exception as exc:
-                sys.stderr.write("could not list releases: %s\n" % exc)
-                releases = []
-            for rel in releases:
-                for asset in rel.get("assets", []):
-                    if asset["name"].endswith("-%s.pkg" % safe_abi):
-                        print(asset["browser_download_url"])
-            PY
-
-            while read -r url; do
-              [ -n "$url" ] || continue
-              base=$(basename "$url")
-              # strip the -<abi>.pkg suffix back to the canonical package name
-              orig="${base%-${SAFE_ABI}.pkg}.pkg"
-              echo ">>> archived: $orig"
-              fetch -q -o "$REPO_DIR/All/$orig" "$url" || echo "WARN: could not fetch $url"
-            done < /tmp/urls.txt
-
+            # Exactly one version per package, which is what a pkg catalogue is
+            # for. Carrying every release here instead put 15 rows under one
+            # name, and pkg's repo queries order candidates by name only, with
+            # no version ordering: it read the wrong row and reported an
+            # up-to-date system while a newer build sat in the catalogue. That
+            # went unnoticed until 2.10.0, because until then the filename
+            # order happened to match the version order ("2.9.2" < "2.10.0" as
+            # a string). Older builds stay installable as release assets.
             cp work/pkg/*.pkg "$REPO_DIR/All/"
             cp "$PKGFILE" "$WS/release-assets/${PLUGIN_PKGNAME}-${PLUGIN_PKGVERSION}-${SAFE_ABI}.pkg"
+
+            # Guard the rule above: more than one package here means pkg can
+            # pick the wrong one again.
+            PKG_COUNT=$(ls -1 "$REPO_DIR/All" | wc -l | tr -d ' ')
+            if [ "$PKG_COUNT" -ne 1 ]; then
+              echo "FAIL: catalogue holds $PKG_COUNT packages, expected exactly 1"
+              ls -1 "$REPO_DIR/All"
+              exit 1
+            fi
 
             pkg repo "$REPO_DIR"
             test -s "$REPO_DIR/meta.conf"

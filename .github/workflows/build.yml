@@ -218,14 +218,17 @@ jobs:
 
             for f in $(find src -name '*.php'); do php -l "$f" > /dev/null; done
 
-            # The payload builders carry no OPNsense dependency, so their
-            # wording and event mapping are checked here rather than only on a
-            # firewall. tests/ is not part of the package, so it is read from
-            # the synced workspace.
-            if [ -f "$WS/plugin-src/tests/test_apprise_payload.php" ]; then
-              php "$WS/plugin-src/tests/test_apprise_payload.php"
+            # The pure helpers carry no OPNsense dependency, so they are
+            # checked here rather than only on a firewall. tests/ is not part
+            # of the package, so it is read from the synced workspace.
+            PHP_TESTS=$(ls "$WS"/plugin-src/tests/*.php 2>/dev/null || true)
+            if [ -n "$PHP_TESTS" ]; then
+              for t in $PHP_TESTS; do
+                echo ">>> $t"
+                php "$t"
+              done
             else
-              echo "::warning::plugin has no payload tests at this ref"
+              echo "::warning::plugin has no PHP tests at this ref"
             fi
             echo ">>> lint clean"
 

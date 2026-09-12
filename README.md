@@ -28,8 +28,8 @@ pkg install os-devicemonitor
 See what the repo offers, and what you already have from it:
 
 ```
-pkg search -g -r maxysoft \*
-pkg query -a '%R %n-%v' | grep maxysoft
+pkg search -g -r mxy-opnsense-repo \*
+pkg query -a '%R %n-%v' | grep mxy-opnsense-repo
 ```
 
 Remove the repository (previously installed packages are kept):

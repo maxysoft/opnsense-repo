@@ -62,10 +62,10 @@ own behaviour, upstream; open issues here only for packaging problems.
 2. checks out the OPNsense plugin build framework (`opnsense/plugins`) and
    `opnsense/core` for the lint rules, both pinned to `OPNSENSE_PLUGINS_REF`,
 3. assembles them into a throwaway ports tree under `tree/`,
-4. in a FreeBSD VM: runs the official lint targets and `php -l`, compiles the
-   `.po` translations, runs `make package`, installs and removes the result to
-   prove it works, pulls previously released packages back in, then runs
-   `pkg repo` over `site/repo/${ABI}/`,
+4. in a FreeBSD VM: runs the official lint targets, `php -l` and the plugin's
+   own tests, compiles the `.po` translations, runs `make package`, installs and
+   removes the result to prove it works, then runs `pkg repo` over
+   `site/repo/${ABI}/`,
 5. publishes every built package as a GitHub Release,
 6. merges the per-series results and publishes `site/` to GitHub Pages.
 
@@ -97,13 +97,13 @@ everything else has a sane default in `Mk/plugins.mk`.
 
 ### Installing a specific version, or rolling back
 
-The catalogue carries exactly one version, the newest. A pkg catalogue is built
-on that assumption: its repository queries order candidates by package name with
-no version ordering, so several rows under one name let pkg read whichever it
-reaches first. That is not theoretical - publishing every version here made
-`pkg upgrade` report an up-to-date system while a newer build sat in the
-catalogue, as soon as one version number sorted differently as a string than as
-a version (`2.10.0` before `2.3.2`).
+The catalogue carries exactly one version, the newest, because pkg's repository
+queries order candidates by name with no version ordering: several rows under
+one name let it read whichever it reaches first. Publishing every version here
+made `pkg upgrade` report an up-to-date system while a newer build sat in the
+catalogue, as soon as a version sorted differently as a string than as a version
+(`2.10.0` before `2.3.2`). The build now fails if more than one package reaches
+the catalogue.
 
 Every build is attached to a [GitHub
 Release](https://github.com/maxysoft/opnsense-repo/releases), which is the
@@ -122,10 +122,8 @@ move it forward again unless you `pkg lock os-devicemonitor`.
 Tag the plugin repo at the commit to release (`git tag -a v2.4 -m 'Device
 Monitor 2.4' && git push origin v2.4`), then bump `PLUGIN_VERSION` in
 `net-mgmt/devicemonitor/Makefile` to match and push here. The build fails with a
-clear message if the tag does not exist, and fails if `PLUGIN_VERSION` and the
-`version` field in the plugin's `defaults.json` disagree, so the package version
-cannot silently drift from the version
-the plugin reports at runtime.
+clear message if the tag does not exist, and if `defaults.json` reintroduces a
+`version` field, so `PLUGIN_VERSION` stays the only source of the version.
 
 ## Signing
 

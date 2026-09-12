@@ -28,9 +28,8 @@ env:
   OPNSENSE_PLUGINS_REF: "26.7.3"
 
 jobs:
-  # One package per supported OPNsense series. The FreeBSD release must be the
-  # one that series is built on, or the pkg ABI of the repo will not match the
-  # firewall: 26.1 -> FreeBSD:14:amd64, 26.7 -> FreeBSD:15:amd64.
+  # One package per OPNsense series, built on the FreeBSD release that
+  # series uses: 26.1 -> FreeBSD:14:amd64, 26.7 -> FreeBSD:15:amd64.
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -103,9 +102,8 @@ jobs:
           ref: ${{ env.OPNSENSE_PLUGINS_REF }}
           path: framework
 
-      # Mk/lint.mk in the plugins tree is a stub that includes the real rules
-      # from the core repository, so the lint targets only exist when core is
-      # checked out next to the tree.
+      # lint.mk in the plugins tree only includes the real rules from core, so
+      # the lint targets need core checked out beside it.
       - name: Checkout OPNsense core (lint rules)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -117,9 +115,8 @@ jobs:
         run: |
           set -eu
 
-          # The version has a single source: PLUGIN_VERSION here, which also
-          # selects the plugin tag to build and becomes the annotation the GUI
-          # reads. The plugin repo no longer carries a copy to drift from.
+          # PLUGIN_VERSION is the only source of the version: it selects the plugin
+          # tag to build and becomes the annotation the GUI reads.
           DEFAULTS=plugin-src/src/opnsense/mvc/app/models/OPNsense/DeviceMonitor/defaults.json
           if grep -q '"version"' "$DEFAULTS"; then
             echo "::error::$DEFAULTS reintroduced a version field; PLUGIN_VERSION is the only source"
@@ -131,18 +128,12 @@ jobs:
           cp -R framework/Mk framework/Templates framework/Scripts framework/Keywords tree/
           cp -R "${PLUGIN_DIR}/." "tree/${PLUGIN_DIR}/"
           # plugins.mk stages with tar -p, so git modes are the installed modes.
-          # The rc script is 0755 in the plugin repo; the smoke test below fails
-          # the build if that ever regresses.
+          # The smoke test below fails the build if that regresses.
           cp -R plugin-src/src "tree/${PLUGIN_DIR}/src"
 
-      # Before the first migration runs there is no config node, and Jinja's
-      # default Undefined raises on attribute access. A template that walks the
-      # path directly renders fine once configured and fails on a clean
-      # install, which is invisible until someone installs the package.
-      # Templates here therefore have to render against an empty config.
-      # Drives the scanner's transition detection against a synthetic feed.
-      # Catches the class of defect that only appears once the scanner has run
-      # twice, which nothing else here exercises.
+      # Two checks that only fail on a machine other than the developer's: the
+      # scanner's transition detection across two runs, and templates rendering
+      # against the empty config a clean install starts from.
       - name: Run the plugin's scanner tests
         run: |
           set -eu
@@ -205,9 +196,8 @@ jobs:
             WS=$(pwd)
             cd "tree/${PLUGIN_DIR}"
 
-            # Official lint rules from opnsense/core. lint-acl, lint-class and
-            # lint-import are skipped: they run scripts against a full core
-            # checkout rather than a plugin.
+            # Official lint from opnsense/core. lint-acl, lint-class and lint-import
+            # expect a full core checkout rather than a plugin.
             make lint-desc lint-shell lint-xml lint-model lint-exec
 
             # lint-model only reports, it does not fail, so turn any output
@@ -218,9 +208,8 @@ jobs:
 
             for f in $(find src -name '*.php'); do php -l "$f" > /dev/null; done
 
-            # The pure helpers carry no OPNsense dependency, so they are
-            # checked here rather than only on a firewall. tests/ is not part
-            # of the package, so it is read from the synced workspace.
+            # The pure helpers need no firewall. tests/ is not packaged, so it is read
+            # from the synced workspace.
             PHP_TESTS=$(ls "$WS"/plugin-src/tests/*.php 2>/dev/null || true)
             if [ -n "$PHP_TESTS" ]; then
               for t in $PHP_TESTS; do
@@ -257,11 +246,9 @@ jobs:
             pkg info -F "$PKGFILE" | grep -qE "^Version +: ${PLUGIN_PKGVERSION}\$" || {
               echo "FAIL: package version does not match ${PLUGIN_PKGVERSION}"; pkg info -F "$PKGFILE"; exit 1; }
 
-            # Dependencies resolve against the FreeBSD ports repo at build time,
-            # but have to exist in the OPNsense repository at install time. Those
-            # differ: OPNsense ships python313, not the python3 meta package.
-            # Without this check a bad dependency only shows up on a firewall as
-            # "has a missing dependency".
+            # Dependencies resolve against FreeBSD ports at build time but must exist
+            # in the OPNsense repository at install time; those differ. Without this,
+            # a bad dependency only surfaces on a firewall as "missing dependency".
             ABI_NOW=$(pkg config ABI)
             fetch -q -o /tmp/oscat.pkg \
               "https://pkg.opnsense.org/${ABI_NOW}/${PLUGIN_ABI}/latest/packagesite.pkg"
@@ -286,8 +273,8 @@ jobs:
               cat "work/src/usr/local/opnsense/version/devicemonitor"; exit 1; }
 
             # --- smoke test: really install it, then remove it again ---
-            # The OPNsense-only parts of the hooks are [ -f ]-guarded, so on plain
-            # FreeBSD they no-op and this exercises the plist, deps and scripts.
+            # The OPNsense-only parts of the hooks are [ -f ]-guarded, so this
+            # exercises the plist, deps and scripts on plain FreeBSD.
             pkg add "$PKGFILE"
             test -x /usr/local/etc/rc.d/devicemonitor || {
               echo "FAIL: rc script installed non-executable, service would not start"; exit 1; }
@@ -305,14 +292,9 @@ jobs:
             REPO_DIR="$WS/site/repo/$ABI"
             mkdir -p "$REPO_DIR/All" "$WS/release-assets"
 
-            # Exactly one version per package, which is what a pkg catalogue is
-            # for. Carrying every release here instead put 15 rows under one
-            # name, and pkg's repo queries order candidates by name only, with
-            # no version ordering: it read the wrong row and reported an
-            # up-to-date system while a newer build sat in the catalogue. That
-            # went unnoticed until 2.10.0, because until then the filename
-            # order happened to match the version order ("2.9.2" < "2.10.0" as
-            # a string). Older builds stay installable as release assets.
+            # Exactly one version per package. Several rows under one name let pkg
+            # pick the wrong one: its repo queries order by name, not by version.
+            # Older builds stay installable as release assets.
             cp work/pkg/*.pkg "$REPO_DIR/All/"
             cp "$PKGFILE" "$WS/release-assets/${PLUGIN_PKGNAME}-${PLUGIN_PKGVERSION}-${SAFE_ABI}.pkg"
 
